@@ -1,0 +1,62 @@
+"""CrispASR Engine wrapper for transcribing audio buffers using GGML models.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import logging
+import numpy as np
+
+# Import crispasr from local copy if not installed globally
+try:
+    from crispasr import Session
+except ImportError:
+    local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../crispasr_src/python"))
+    if local_path not in sys.path:
+        sys.path.insert(0, local_path)
+    from crispasr import Session
+
+logger = logging.getLogger("crispasr_ros.asr_engine")
+
+class ASREngine:
+    """ASR Engine that wraps the CrispASR Session class for transcription."""
+
+    def __init__(self, model_path: str, n_threads: int = 4) -> None:
+        """Initialize the ASREngine.
+
+        Args:
+            model_path: Path to the GGUF model file.
+            n_threads: Number of threads to run inference on.
+
+        Raises:
+            FileNotFoundError: If the model file does not exist.
+        """
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+            
+        logger.info(f"Loading ASR model: {model_path}")
+        self.session = Session(model_path, n_threads=n_threads)
+        logger.info(f"ASR Model loaded. Backend: {self.session.backend}")
+
+    def transcribe(self, pcm_f32: np.ndarray, language: str | None = None) -> str:
+        """Transcribe floating point PCM samples to text.
+
+        Args:
+            pcm_f32: Floating point PCM samples normalized to [-1.0, 1.0] at 16kHz.
+            language: Optional ISO 639-1 language code (e.g., "ja", "en").
+
+        Returns:
+            The transcribed text segment, or empty string on failure or empty input.
+        """
+        if len(pcm_f32) == 0:
+            return ""
+        try:
+            segments = self.session.transcribe(pcm_f32, language=language)
+            text = " ".join([seg.text for seg in segments]).strip()
+            return text
+        except Exception as e:
+            logger.error(f"Error during transcription: {e}")
+            return ""
+
+

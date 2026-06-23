@@ -1,0 +1,79 @@
+[workspace]
+authors = ["Antigravity <antigravity@google.com>"]
+channels = ["conda-forge"]
+name = "crispasr_ros"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.12.*"
+numpy = ">=1.20,<3.0"
+setuptools = "*"
+compilers = "*"
+cmake = "*"
+make = "*"
+ninja = "*"
+pkg-config = "*"
+colcon-common-extensions = "*"
+pytest = "*"
+curl = "*"
+openblas = "*"
+python-sounddevice = "*"
+portaudio = "*"
+
+
+[tasks]
+# CrispASR C++ shared library build
+build-native = "cmake -S crispasr_src -B build/native -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCRISPASR_STANDALONE=OFF -DCRISPASR_BUILD_TESTS=OFF -DCRISPASR_BUILD_EXAMPLES=OFF && cmake --build build/native -j$(nproc)"
+clean-native = "rm -rf build/native"
+# Download the cohere-transcribe-03-2026 model for ASR
+download-model = { cmd = "mkdir -p models && curl -L -o models/cohere-transcribe-q4_k.gguf https://huggingface.co/cstr/cohere-transcribe-03-2026-GGUF/resolve/main/cohere-transcribe-q4_k.gguf", outputs = ["models/cohere-transcribe-q4_k.gguf"] }
+# Download Silero VAD model for voice activity detection
+download-vad = { cmd = "mkdir -p models && curl -L -o models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", outputs = ["models/ggml-silero-v6.2.0.bin"] }
+# Download test audio file (16kHz mono wav, standard English Speech)
+download-audio = { cmd = "mkdir -p test_audio && curl -L -o test_audio/sample.wav https://github.com/ggerganov/whisper.cpp/raw/master/samples/jfk.wav", outputs = ["test_audio/sample.wav"] }
+
+[environments]
+default = []
+ros1 = ["ros1"]
+ros2 = ["ros2"]
+
+[feature.ros1]
+channels = ["https://prefix.dev/robostack-noetic", "conda-forge"]
+
+[feature.ros1.dependencies]
+ros-noetic-ros-core = "*"
+ros-noetic-catkin = "*"
+ros-noetic-rospy = "*"
+ros-noetic-message-generation = "*"
+ros-noetic-message-runtime = "*"
+ros-noetic-std-msgs = "*"
+ros-noetic-sensor-msgs = "*"
+
+[feature.ros1.tasks]
+build = { cmd = "colcon build --base-paths crispasr_msgs crispasr_ros --build-base build/ros1 --install-base install/ros1 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python", depends-on = ["build-native"] }
+clean = "rm -rf build/ros1 install/ros1 log"
+launch-server = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && export CRISPASR_LIB_PATH=$PWD/build/native/src/libcrispasr.so && export PYTHONPATH=$PWD/crispasr_src/python:$PYTHONPATH && . install/ros1/setup.bash && roslaunch crispasr_ros crispasr.launch'", depends-on = ["build"] }
+launch-audio = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && . install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch'", depends-on = ["build"] }
+launch-audio-mic = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && . install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch use_microphone:=true'", depends-on = ["build"] }
+
+
+[feature.ros2]
+channels = ["https://prefix.dev/robostack-humble", "conda-forge"]
+
+[feature.ros2.dependencies]
+ros-humble-ros-core = "*"
+ros-humble-rclpy = "*"
+ros-humble-rosidl-default-generators = "*"
+ros-humble-rosidl-default-runtime = "*"
+ros-humble-std-msgs = "*"
+ros-humble-sensor-msgs = "*"
+ros-humble-ament-cmake = "*"
+
+[feature.ros2.tasks]
+build = { cmd = "colcon build --base-paths crispasr_msgs crispasr_ros --build-base build/ros2 --install-base install/ros2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python", depends-on = ["build-native"] }
+clean = "rm -rf build/ros2 install/ros2 log"
+launch-server = { cmd = "bash -c 'export CRISPASR_LIB_PATH=$PWD/build/native/src/libcrispasr.so && export PYTHONPATH=$PWD/crispasr_src/python:$PYTHONPATH && . install/ros2/setup.bash && ros2 launch crispasr_ros crispasr.launch.py'", depends-on = ["build"] }
+launch-audio = { cmd = "bash -c '. install/ros2/setup.bash && ros2 launch crispasr_ros audio_source.launch.py'", depends-on = ["build"] }
+launch-audio-mic = { cmd = "bash -c '. install/ros2/setup.bash && ros2 launch crispasr_ros audio_source.launch.py use_microphone:=true'", depends-on = ["build"] }
+

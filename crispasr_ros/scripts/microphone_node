@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""ROS node for capturing microphone audio using sounddevice and publishing PCM chunks.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+import numpy as np
+import sounddevice as sd
+from typing import Any
+
+# Resolve local paths so we can import from src/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
+
+
+
+from crispasr_ros.compat import RosNode
+from crispasr_msgs.msg import AudioData
+
+class MicrophoneNode:
+    """Captures microphone audio in real-time and publishes it to a ROS topic."""
+
+    def __init__(self) -> None:
+        """Initialize the ROS node, query devices, and prepare the audio stream."""
+        self.node = RosNode("microphone_node")
+        
+        self.device_index = self.node.get_param("device_index", -1)
+        self.chunk_duration = self.node.get_param("chunk_duration", 0.1) # 100ms chunks
+        self.sample_rate = 16000
+        
+        audio_topic = self.node.get_param("audio_topic", "/audio")
+        self.pub = self.node.create_publisher(AudioData, audio_topic)
+
+
+        
+        # Log available devices to help users debug
+        self._log_available_devices()
+        
+        # Select device
+        device = None
+        device_info = None
+        
+        try:
+            if self.device_index == -1:
+                default_device = sd.default.device[0]
+                if default_device == -1 or default_device is None:
+                    raise ValueError("No default audio input device is configured on this system.")
+                device = default_device
+                device_info = sd.query_devices(device, 'input')
+            else:
+                device = self.device_index
+                device_info = sd.query_devices(device, 'input')
+        except Exception as e:
+            self.node.log_error(f"Failed to resolve audio input device: {e}")
+            self.node.log_error("Please check if a microphone is connected and configured.")
+            sys.exit(1)
+
+        self.node.log_info(f"Using input device: {device_info['name']} (index: {device})")
+
+
+        # Determine block size
+        self.blocksize = int(self.sample_rate * self.chunk_duration)
+        
+        try:
+            self.stream = sd.InputStream(
+                device=device,
+                channels=1,
+                samplerate=self.sample_rate,
+                dtype='int16',
+                blocksize=self.blocksize,
+                callback=self.audio_callback
+            )
+        except Exception as e:
+            self.node.log_error(f"Failed to open audio input stream: {e}")
+            sys.exit(1)
+            
+        self.node.log_info(f"Microphone stream opened. Publishing to /audio at {self.sample_rate}Hz mono 16-bit PCM.")
+
+    def _log_available_devices(self) -> None:
+        """Query and log all available input audio devices on the host."""
+        try:
+            devices = sd.query_devices()
+            default_input = sd.default.device[0]
+            self.node.log_info("--- Available Audio Input Devices ---")
+            for idx, dev in enumerate(devices):
+                if dev['max_input_channels'] > 0:
+                    is_default = " [DEFAULT]" if idx == default_input else ""
+                    self.node.log_info(f"Index {idx}: {dev['name']} (Max Inputs: {dev['max_input_channels']}){is_default}")
+            self.node.log_info("-------------------------------------")
+        except Exception as e:
+            self.node.log_warn(f"Could not query audio devices: {e}")
+
+    def audio_callback(self, indata: np.ndarray, frames: int, time_info: Any, status: sd.CallbackFlags) -> None:
+        """Callback function called by sounddevice for each new block of audio.
+
+        Args:
+            indata: Numpy array containing input audio samples.
+            frames: Number of frames in the block.
+            time_info: Dict containing timing information.
+            status: Flag status representing overflow or underflow.
+        """
+        if status:
+            self.node.log_warn(f"Audio stream status: {status}")
+            
+        # Convert int16 samples to raw bytes and publish
+        try:
+            raw_bytes = indata.tobytes()
+            msg = AudioData()
+            msg.data = raw_bytes
+            self.pub.publish(msg)
+        except Exception as e:
+            self.node.log_error(f"Failed to publish audio callback data: {e}")
+
+    def run(self) -> None:
+        """Start capturing audio and spin the ROS execution."""
+        try:
+            with self.stream:
+                # Keep spinning ROS callbacks while stream is active
+                while not self.node.is_shutdown():
+                    time.sleep(0.1)
+        except Exception as e:
+            self.node.log_error(f"Exception in microphone node streaming: {e}")
+        finally:
+            self.node.log_info("Microphone node stream stopped.")
+
+def main() -> None:
+    node = MicrophoneNode()
+    node.run()
+
+if __name__ == "__main__":
+    main()
+

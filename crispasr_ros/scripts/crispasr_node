@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""ROS node for CrispASR speech recognition using Silero VAD.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+import queue
+import threading
+from typing import List, Optional
+import numpy as np
+
+# Resolve local paths so we can import from src/ and crispasr_src/python/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
+
+# Fallback for importing crispasr._binding
+try:
+    from crispasr._binding import vad_slices
+except ImportError:
+    local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../crispasr_src/python"))
+    if local_path not in sys.path:
+        sys.path.insert(0, local_path)
+    from crispasr._binding import vad_slices
+
+from crispasr_ros.compat import RosNode, find_workspace_root
+from crispasr_ros.asr_engine import ASREngine
+from crispasr_msgs.msg import AudioData, SpeechResult
+
+class CrispASRNode:
+    """ROS ASR Node combining Silero VAD and Whisper-based GGML transcription."""
+
+    def __init__(self) -> None:
+        """Initialize the ROS node, parameters, and speech recognition engines."""
+        self.node = RosNode("crispasr_node")
+        
+        # Load parameters
+        model_path = self.node.get_param("model_path", "models/cohere-transcribe-q4_k.gguf")
+        self.vad_model_path = self.node.get_param("vad_model_path", "models/ggml-silero-v6.2.0.bin")
+        n_threads = self.node.get_param("n_threads", 4)
+        self.vad_threshold = self.node.get_param("vad_threshold", 0.5)
+        self.silence_duration = self.node.get_param("silence_duration", 0.8)
+        self.language = self.node.get_param("language", "") # empty string means auto-detect
+        audio_topic = self.node.get_param("audio_topic", "/audio")
+
+        
+        ws_root = find_workspace_root(os.path.dirname(__file__))
+        
+        # Resolve ASR model path
+        if not os.path.isabs(model_path) and not os.path.exists(model_path) and ws_root:
+            resolved = os.path.join(ws_root, model_path)
+            if os.path.exists(resolved):
+                model_path = resolved
+                
+        # Resolve VAD model path
+        if not os.path.isabs(self.vad_model_path) and not os.path.exists(self.vad_model_path) and ws_root:
+            resolved = os.path.join(ws_root, self.vad_model_path)
+            if os.path.exists(resolved):
+                self.vad_model_path = resolved
+        
+        self.node.log_info(f"Initializing ASREngine with model: {model_path}")
+        try:
+            self.engine = ASREngine(model_path=model_path, n_threads=n_threads)
+        except Exception as e:
+            self.node.log_error(f"Failed to initialize CrispASR Engine: {e}")
+            sys.exit(1)
+            
+        if not os.path.exists(self.vad_model_path):
+            self.node.log_error(f"VAD model not found: {self.vad_model_path}")
+            sys.exit(1)
+        self.node.log_info(f"Loaded Silero VAD model: {self.vad_model_path}")
+        
+        # Thread-safe Communication Queue
+        self.audio_queue: queue.Queue[np.ndarray] = queue.Queue()
+        self.last_rx_time = time.time()
+        self.keep_running = True
+        
+        # Create Publisher and Subscriber using global topic names by default
+        self.pub = self.node.create_publisher(SpeechResult, "/speech_result")
+        self.node.create_subscriber(AudioData, audio_topic, self.audio_callback)
+
+        
+        # Start Worker Thread for processing VAD and ASR
+        self.worker_thread = threading.Thread(target=self._processing_loop, daemon=True)
+        self.worker_thread.start()
+        
+        self.node.log_info(f"CrispASR Node initialized. Listening on topic: {audio_topic}")
+
+    def audio_callback(self, msg: AudioData) -> None:
+        """Handle incoming AudioData messages by pushing them immediately to a queue.
+
+        Args:
+            msg: Custom message containing raw uint8 bytes representing 16-bit PCM.
+        """
+        if not msg.data:
+            return
+            
+        # Basic validation: PCM 16-bit mono means 2 bytes per sample.
+        # Length of data must be an even number.
+        if len(msg.data) % 2 != 0:
+            self.node.log_warn("Received audio message with odd byte length. Discarding corrupt data.")
+            return
+
+        # Convert uint8[] bytes to int16 PCM, then normalize to float32
+        try:
+            int16_samples = np.frombuffer(msg.data, dtype=np.int16)
+            float32_samples = int16_samples.astype(np.float32) / 32768.0
+        except Exception as e:
+            self.node.log_error(f"Failed to decode audio data: {e}")
+            return
+            
+        # Enqueue immediately (non-blocking)
+        self.last_rx_time = time.time()
+        self.audio_queue.put(float32_samples)
+
+    def _processing_loop(self) -> None:
+        """Worker loop that handles VAD computation, timeouts, and ASR inference."""
+        audio_buffer: List[float] = []
+        last_partial_text = ""
+        last_inference_time = time.time()
+        in_speech = False
+        
+        transcribe_interval = 0.6  # Partial transcription interval (seconds)
+        silence_timeout = 1.5     # Watchdog timeout (seconds)
+        
+        lang_code = self.language.strip() if self.language.strip() else None
+        
+        while self.keep_running and not self.node.is_shutdown():
+            try:
+                # Retrieve audio from queue with timeout to allow periodic watchdog checks
+                float32_samples = self.audio_queue.get(timeout=0.05)
+                audio_buffer.extend(float32_samples)
+            except queue.Empty:
+                pass
+                
+            now = time.time()
+            total_duration = len(audio_buffer) / 16000.0
+            
+            # 1. Silence watchdog timeout check
+            if now - self.last_rx_time > silence_timeout and len(audio_buffer) > 0:
+                self.node.log_info("Silence watchdog timeout. Flushing entire buffer.")
+                audio_buffer, in_speech, last_partial_text = self._flush_buffer(
+                    audio_buffer, lang_code, cut_time_sec=None
+                )
+                self.last_rx_time = now
+                continue
+                
+            # 2. VAD processing if buffer has enough samples (>= 0.5s)
+            if len(audio_buffer) >= 8000:
+                pcm_array = np.array(audio_buffer, dtype=np.float32)
+                spans = []
+                try:
+                    spans = vad_slices(
+                        pcm_array,
+                        self.vad_model_path,
+                        sample_rate=16000,
+                        threshold=self.vad_threshold,
+                        n_threads=1
+                    )
+                except Exception as e:
+                    self.node.log_error(f"VAD slices failed: {e}")
+                    # On error, clear buffer to prevent overflow
+                    audio_buffer = []
+                    in_speech = False
+                    continue
+                    
+                if len(spans) > 0:
+                    in_speech = True
+                    last_span = spans[-1]
+                    last_end = last_span.end
+                    
+                    # If silence duration after the last detected speech span exceeds threshold, flush
+                    if total_duration - last_end >= self.silence_duration:
+                        self.node.log_info(f"VAD detected speech end (silence gap: {total_duration - last_end:.2f}s). Flushing buffer.")
+                        audio_buffer, in_speech, last_partial_text = self._flush_buffer(
+                            audio_buffer, lang_code, cut_time_sec=last_end
+                        )
+                        self.last_rx_time = now
+                else:
+                    # No speech segments detected.
+                    # Clear accumulated silence if it exceeds 2.0s to avoid memory inflation.
+                    if not in_speech and total_duration >= 2.0:
+                        audio_buffer = []
+                        
+            # 3. Periodic partial transcription during active speech
+            if in_speech and len(audio_buffer) >= 8000:
+                if now - last_inference_time > transcribe_interval:
+                    pcm_array = np.array(audio_buffer, dtype=np.float32)
+                    text = self.engine.transcribe(pcm_array, language=lang_code)
+                    if text and text != last_partial_text:
+                        self._publish_result(text, is_final=False)
+                        last_partial_text = text
+                    last_inference_time = now
+
+    def _flush_buffer(
+        self, audio_buffer: List[float], language: Optional[str], cut_time_sec: Optional[float] = None
+    ) -> tuple[List[float], bool, str]:
+        """Transcribe accumulated buffer, publish final result, and return reset states.
+
+        Args:
+            audio_buffer: Audio sample buffer to transcribe.
+            language: Optional language ISO code.
+            cut_time_sec: Optional duration indicating where to split the buffer.
+
+        Returns:
+            A tuple of (remaining_audio_buffer, in_speech_state, last_partial_text_reset).
+        """
+        pcm_array = np.array(audio_buffer, dtype=np.float32)
+        
+        if cut_time_sec is not None:
+            cut_idx = int(cut_time_sec * 16000)
+            transcribe_pcm = pcm_array[:cut_idx]
+            remaining_buffer = list(pcm_array[cut_idx:])
+        else:
+            transcribe_pcm = pcm_array
+            remaining_buffer = []
+            
+        text = self.engine.transcribe(transcribe_pcm, language=language)
+        if text:
+            self._publish_result(text, is_final=True)
+            
+        return remaining_buffer, False, ""
+
+    def _publish_result(self, text: str, is_final: bool) -> None:
+        """Publish the ASR transcription result.
+
+        Args:
+            text: Transcribed text string.
+            is_final: True if speech chunk ended, False for incremental updates.
+        """
+        result_msg = SpeechResult()
+        result_msg.text = text
+        result_msg.start = 0.0
+        result_msg.end = 0.0
+        result_msg.is_final = is_final
+        self.pub.publish(result_msg)
+        
+        status = "FINAL" if is_final else "PARTIAL"
+        self.node.log_info(f"[{status}] {text}")
+
+    def run(self) -> None:
+        """Start spinning the node execution."""
+        self.node.spin()
+        self.keep_running = False
+        try:
+            self.worker_thread.join(timeout=1.0)
+        except Exception:
+            pass
+
+def main() -> None:
+    node = CrispASRNode()
+    node.run()
+
+if __name__ == "__main__":
+    main()
+
+

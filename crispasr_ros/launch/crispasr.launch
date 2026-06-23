@@ -1,0 +1,8 @@
+<launch>
+  <!-- Launch CrispASR node -->
+  <node name="crispasr_node" pkg="crispasr_ros" type="crispasr_node" output="screen">
+    <rosparam command="load" file="$(find crispasr_ros)/config/params_ros1.yaml" />
+  </node>
+</launch>
+
+

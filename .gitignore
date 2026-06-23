@@ -1,0 +1,19 @@
+# ROS build and install directories
+build/
+install/
+log/
+
+# Pixi environment
+.pixi/
+
+# Models and downloaded media (large files)
+models/
+test_audio/
+
+# Python cache and distribution files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/

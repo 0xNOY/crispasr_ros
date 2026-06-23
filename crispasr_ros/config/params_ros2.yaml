@@ -1,0 +1,16 @@
+# ROS2 configuration parameters
+/**:
+  ros__parameters:
+    model_path: "models/cohere-transcribe-q4_k.gguf"
+    n_threads: 4
+    language: ""
+    audio_topic: "/audio"
+
+    # Silero VAD parameters
+    vad_model_path: "models/ggml-silero-v6.2.0.bin"
+    vad_threshold: 0.5
+    silence_duration: 0.8
+    
+    wav_path: "test_audio/sample.wav"
+    loop: true
+    chunk_duration: 0.1
