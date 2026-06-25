@@ -1,0 +1,3 @@
+[submodule "crispasr_src"]
+	path = crispasr_src
+	url = https://github.com/CrispStrobe/CrispASR.git

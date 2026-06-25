@@ -59,6 +59,14 @@ if ROS_VERSION == 1:
             topic = name if name.startswith("/") or name.startswith("~") else "~" + name
             rospy.Subscriber(topic, msg_type, callback)
 
+        def create_trigger_service(self, name: str, callback: Callable[[], tuple[bool, str]]) -> None:
+            from std_srvs.srv import Trigger, TriggerResponse
+            topic = name if name.startswith("/") or name.startswith("~") else "~" + name
+            def rospy_callback(req):
+                success, message = callback()
+                return TriggerResponse(success=success, message=message)
+            rospy.Service(topic, Trigger, rospy_callback)
+
         def log_info(self, message: str) -> None:
             rospy.loginfo(message)
 
@@ -103,6 +111,16 @@ elif ROS_VERSION == 2:
         def create_subscriber(self, msg_type: Any, name: str, callback: Callable[[Any], None]) -> None:
             topic = name if name.startswith("/") or name.startswith("~/") else "~/" + name
             self._node.create_subscription(msg_type, topic, callback, 10)
+
+        def create_trigger_service(self, name: str, callback: Callable[[], tuple[bool, str]]) -> None:
+            from std_srvs.srv import Trigger
+            topic = name if name.startswith("/") or name.startswith("~/") else "~/" + name
+            def rclpy_callback(request, response):
+                success, message = callback()
+                response.success = success
+                response.message = message
+                return response
+            self._node.create_service(Trigger, topic, rclpy_callback)
 
         def log_info(self, message: str) -> None:
             self._node.get_logger().info(message)

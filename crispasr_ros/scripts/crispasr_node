@@ -75,11 +75,16 @@ class CrispASRNode:
         self.audio_queue: queue.Queue[np.ndarray] = queue.Queue()
         self.last_rx_time = time.time()
         self.keep_running = True
+        self.is_sleeping = False
+        self.lock = threading.Lock()
         
         # Create Publisher and Subscriber using global topic names by default
         self.pub = self.node.create_publisher(SpeechResult, "/speech_result")
         self.node.create_subscriber(AudioData, audio_topic, self.audio_callback)
 
+        # Create Services for sleep/wake_up
+        self.node.create_trigger_service("sleep", self.sleep_callback)
+        self.node.create_trigger_service("wake_up", self.wake_up_callback)
         
         # Start Worker Thread for processing VAD and ASR
         self.worker_thread = threading.Thread(target=self._processing_loop, daemon=True)
@@ -87,12 +92,51 @@ class CrispASRNode:
         
         self.node.log_info(f"CrispASR Node initialized. Listening on topic: {audio_topic}")
 
+    def sleep_callback(self) -> tuple[bool, str]:
+        """Handle sleep service request by offloading the model to CPU."""
+        with self.lock:
+            if self.is_sleeping:
+                return True, "ASR engine is already sleeping."
+            self.node.log_info("Received sleep request. Offloading model to CPU.")
+            try:
+                # Clear queue to discard any pending audio
+                while not self.audio_queue.empty():
+                    try:
+                        self.audio_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                self.is_sleeping = True
+                self.engine.offload_to_cpu()
+                return True, "ASR engine successfully offloaded to CPU."
+            except Exception as e:
+                err_msg = f"Failed to sleep ASR engine: {e}"
+                self.node.log_error(err_msg)
+                return False, err_msg
+
+    def wake_up_callback(self) -> tuple[bool, str]:
+        """Handle wake_up service request by loading the model back to GPU."""
+        with self.lock:
+            if not self.is_sleeping:
+                return True, "ASR engine is already awake."
+            self.node.log_info("Received wake_up request. Loading model to GPU.")
+            try:
+                self.engine.load_to_gpu()
+                self.is_sleeping = False
+                return True, "ASR engine successfully loaded to GPU."
+            except Exception as e:
+                err_msg = f"Failed to wake up ASR engine: {e}"
+                self.node.log_error(err_msg)
+                return False, err_msg
+
     def audio_callback(self, msg: AudioData) -> None:
         """Handle incoming AudioData messages by pushing them immediately to a queue.
 
         Args:
             msg: Custom message containing raw uint8 bytes representing 16-bit PCM.
         """
+        if self.is_sleeping:
+            return
+
         if not msg.data:
             return
             
@@ -127,6 +171,12 @@ class CrispASRNode:
         lang_code = self.language.strip() if self.language.strip() else None
         
         while self.keep_running and not self.node.is_shutdown():
+            if self.is_sleeping:
+                if audio_buffer:
+                    audio_buffer = []
+                time.sleep(0.05)
+                continue
+
             try:
                 # Retrieve audio from queue with timeout to allow periodic watchdog checks
                 float32_samples = self.audio_queue.get(timeout=0.05)

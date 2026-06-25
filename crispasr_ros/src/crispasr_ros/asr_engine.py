@@ -59,4 +59,20 @@ class ASREngine:
             logger.error(f"Error during transcription: {e}")
             return ""
 
+    def offload_to_cpu(self) -> None:
+        """Offload the model's active weights from VRAM to Host System RAM."""
+        try:
+            self.session.offload_to_cpu()
+        except Exception as e:
+            logger.error(f"Error during offload: {e}")
+            raise
+
+    def load_to_gpu(self) -> None:
+        """Load the model's weights from Host System RAM back to VRAM."""
+        try:
+            self.session.load_to_gpu()
+        except Exception as e:
+            logger.error(f"Error during load: {e}")
+            raise
+
 
