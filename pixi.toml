@@ -53,9 +53,9 @@ ros-noetic-sensor-msgs = "*"
 [feature.ros1.tasks]
 build = { cmd = "colcon build --base-paths crispasr_msgs crispasr_ros --build-base build/ros1 --install-base install/ros1 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python", depends-on = ["build-native"] }
 clean = "rm -rf build/ros1 install/ros1 log"
-launch-server = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && export CRISPASR_LIB_PATH=$PWD/build/native/src/libcrispasr.so && export PYTHONPATH=$PWD/crispasr_src/python:$PYTHONPATH && . install/ros1/setup.bash && roslaunch crispasr_ros crispasr.launch'", depends-on = ["build"] }
-launch-audio = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && . install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch'", depends-on = ["build"] }
-launch-audio-mic = { cmd = "bash -c 'export ROS_IP=127.0.0.1 && export ROS_HOSTNAME=127.0.0.1 && export ROS_MASTER_URI=http://127.0.0.1:11311 && . install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch use_microphone:=true'", depends-on = ["build"] }
+launch-server = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros crispasr.launch'", depends-on = ["build"] }
+launch-audio = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch'", depends-on = ["build"] }
+launch-audio-mic = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch use_microphone:=true'", depends-on = ["build"] }
 
 
 [feature.ros2]
@@ -73,7 +73,6 @@ ros-humble-ament-cmake = "*"
 [feature.ros2.tasks]
 build = { cmd = "colcon build --base-paths crispasr_msgs crispasr_ros --build-base build/ros2 --install-base install/ros2 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python", depends-on = ["build-native"] }
 clean = "rm -rf build/ros2 install/ros2 log"
-launch-server = { cmd = "bash -c 'export CRISPASR_LIB_PATH=$PWD/build/native/src/libcrispasr.so && export PYTHONPATH=$PWD/crispasr_src/python:$PYTHONPATH && . install/ros2/setup.bash && ros2 launch crispasr_ros crispasr.launch.py'", depends-on = ["build"] }
+launch-server = { cmd = "bash -c '. install/ros2/setup.bash && ros2 launch crispasr_ros crispasr.launch.py'", depends-on = ["build"] }
 launch-audio = { cmd = "bash -c '. install/ros2/setup.bash && ros2 launch crispasr_ros audio_source.launch.py'", depends-on = ["build"] }
 launch-audio-mic = { cmd = "bash -c '. install/ros2/setup.bash && ros2 launch crispasr_ros audio_source.launch.py use_microphone:=true'", depends-on = ["build"] }
-
