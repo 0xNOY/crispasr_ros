@@ -1,7 +1,9 @@
 <launch>
   <arg name="use_microphone" default="false" />
+  <arg name="audio_backend" default="arecord" />
   <arg name="device_index" default="-1" />
   <arg name="capture_sample_rate" default="0" />
+  <arg name="arecord_command" default="arecord -q -D default -f S16_LE -r 16000 -c 1 -t raw -" />
 
   <!-- Launch Test Audio Publisher node (WAV playback) -->
   <node name="audio_publisher_node" pkg="crispasr_ros" type="audio_publisher_node" output="screen" unless="$(arg use_microphone)">
@@ -11,7 +13,9 @@
   <!-- Launch Microphone Capture node -->
   <node name="microphone_node" pkg="crispasr_ros" type="microphone_node" output="screen" if="$(arg use_microphone)">
     <rosparam command="load" file="$(find crispasr_ros)/config/params_ros1.yaml" />
+    <param name="audio_backend" value="$(arg audio_backend)" />
     <param name="device_index" value="$(arg device_index)" />
     <param name="capture_sample_rate" value="$(arg capture_sample_rate)" />
+    <param name="arecord_command" value="$(arg arecord_command)" />
   </node>
 </launch>

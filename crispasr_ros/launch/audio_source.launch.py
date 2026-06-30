@@ -12,14 +12,21 @@ def generate_launch_description():
     config_file = os.path.join(pkg_dir, 'config', 'params_ros2.yaml')
 
     use_microphone = LaunchConfiguration('use_microphone')
+    audio_backend = LaunchConfiguration('audio_backend')
     device_index = LaunchConfiguration('device_index')
     capture_sample_rate = LaunchConfiguration('capture_sample_rate')
+    arecord_command = LaunchConfiguration('arecord_command')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_microphone',
             default_value='false',
             description='Whether to capture audio from live microphone instead of WAV publisher'
+        ),
+        DeclareLaunchArgument(
+            'audio_backend',
+            default_value='arecord',
+            description='Local microphone backend: arecord or sounddevice'
         ),
         DeclareLaunchArgument(
             'device_index',
@@ -30,6 +37,11 @@ def generate_launch_description():
             'capture_sample_rate',
             default_value='0',
             description='Microphone hardware sample rate; 0 auto-detects a usable rate'
+        ),
+        DeclareLaunchArgument(
+            'arecord_command',
+            default_value='arecord -q -D default -f S16_LE -r 16000 -c 1 -t raw -',
+            description='Local arecord command that writes raw 16 kHz mono S16_LE PCM to stdout'
         ),
         # Launch Test Audio Publisher node (WAV playback)
         Node(
@@ -49,8 +61,10 @@ def generate_launch_description():
             parameters=[
                 config_file,
                 {
+                    'audio_backend': audio_backend,
                     'device_index': device_index,
                     'capture_sample_rate': capture_sample_rate,
+                    'arecord_command': arecord_command,
                 },
             ],
             condition=IfCondition(use_microphone)

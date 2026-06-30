@@ -6,8 +6,10 @@
     language: ""
     audio_topic: "/audio"
     sample_rate: 16000
+    audio_backend: "arecord"
     capture_sample_rate: 0
     device_index: -1
+    arecord_command: "arecord -q -D default -f S16_LE -r 16000 -c 1 -t raw -"
     ssh_host: ""
     ssh_compression: true
     ssh_arecord_command: "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
