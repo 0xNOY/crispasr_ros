@@ -11,6 +11,7 @@ ParamT = TypeVar("ParamT", bound=ParamValue)
 
 class Publisher(Protocol):
     def publish(self, message: Any) -> None: ...
+    def get_subscription_count(self) -> int: ...
 
 def find_workspace_root(start_dir: str) -> str | None:
     """Find the workspace root directory containing pixi.toml.
@@ -39,6 +40,9 @@ if ROS_VERSION == 1:
 
         def publish(self, message: Any) -> None:
             self._publisher.publish(message)
+
+        def get_subscription_count(self) -> int:
+            return int(self._publisher.get_num_connections())
 
     class RosNode:
         def __init__(self, name: str) -> None:
@@ -92,6 +96,9 @@ elif ROS_VERSION == 2:
 
         def publish(self, message: Any) -> None:
             self._publisher.publish(message)
+
+        def get_subscription_count(self) -> int:
+            return int(self._publisher.get_subscription_count())
 
     class RosNode:
         def __init__(self, name: str) -> None:
@@ -149,4 +156,3 @@ else:
         "ROS_VERSION environment variable must be '1' or '2'; is a ROS "
         "environment active?"
     )
-
