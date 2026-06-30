@@ -5,7 +5,12 @@ name = "crispasr_ros"
 platforms = ["linux-64"]
 version = "0.1.0"
 
+[system-requirements]
+cuda = "12.6"
+
 [dependencies]
+cuda-version = "12.6.*"
+cuda-toolkit = "12.6.*"
 python = "3.12.*"
 numpy = ">=1.20,<3.0"
 setuptools = "*"
@@ -21,10 +26,9 @@ openblas = "*"
 python-sounddevice = "*"
 portaudio = "*"
 
-
 [tasks]
 # CrispASR C++ shared library build
-build-native = "cmake -S crispasr_src -B build/native -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCRISPASR_STANDALONE=OFF -DCRISPASR_BUILD_TESTS=OFF -DCRISPASR_BUILD_EXAMPLES=OFF && cmake --build build/native -j$(nproc)"
+build-native = "cmake -S crispasr_src -B build/native -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DGGML_CUDA=ON -DCRISPASR_STANDALONE=OFF -DCRISPASR_BUILD_TESTS=OFF -DCRISPASR_BUILD_EXAMPLES=OFF && cmake --build build/native -j$(nproc)"
 clean-native = "rm -rf build/native"
 # Download the cohere-transcribe-03-2026 model for ASR
 download-model = { cmd = "mkdir -p models && curl -L -o models/cohere-transcribe-q4_k.gguf https://huggingface.co/cstr/cohere-transcribe-03-2026-GGUF/resolve/main/cohere-transcribe-q4_k.gguf", outputs = ["models/cohere-transcribe-q4_k.gguf"] }

@@ -40,6 +40,12 @@ class PixiTasksTest(unittest.TestCase):
             with self.subTest(feature=feature_name, task=task_name):
                 self.assertIn(f". install/{feature_name}/setup.bash", command)
 
+    def test_native_build_enables_cuda_backend_by_default(self):
+        pixi = self.load_pixi()
+        command = pixi["tasks"]["build-native"]
+
+        self.assertIn("-DGGML_CUDA=ON", command)
+
 
 if __name__ == "__main__":
     unittest.main()
