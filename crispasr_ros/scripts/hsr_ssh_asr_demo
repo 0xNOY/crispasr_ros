@@ -23,6 +23,9 @@ DEFAULT_SPEECH_TOPIC = "/speech_result"
 DEFAULT_ROBOT_HOST = "192.168.11.80"
 DEFAULT_ROBOT_USER = "hsr-user"
 DEFAULT_ARECORD_COMMAND = "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
+DEFAULT_VAD_THRESHOLD = 0.7
+DEFAULT_SILENCE_DURATION = 0.8
+DEFAULT_PHRASE_TIME_LIMIT = 10.0
 
 
 def speech_result_to_dict(msg: Any) -> dict[str, Any]:
@@ -80,6 +83,30 @@ def parse_args() -> argparse.Namespace:
         "--speech-topic",
         default=DEFAULT_SPEECH_TOPIC,
         help="SpeechResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--vad-threshold",
+        type=float,
+        default=DEFAULT_VAD_THRESHOLD,
+        help=(
+            "Silero VAD speech threshold passed to crispasr_node. "
+            "Raise this in noisy environments."
+        ),
+    )
+    parser.add_argument(
+        "--silence-duration",
+        type=float,
+        default=DEFAULT_SILENCE_DURATION,
+        help="Seconds of VAD silence required before finalizing a phrase.",
+    )
+    parser.add_argument(
+        "--phrase-time-limit",
+        type=float,
+        default=DEFAULT_PHRASE_TIME_LIMIT,
+        help=(
+            "Maximum phrase duration in seconds after speech starts. "
+            "Use <=0 to disable."
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -179,6 +206,9 @@ def start_crispasr_node(args: argparse.Namespace) -> subprocess.Popen:
             "crispasr_node",
             f"_language:={args.language}",
             f"_audio_topic:={args.audio_topic}",
+            f"_vad_threshold:={args.vad_threshold}",
+            f"_silence_duration:={args.silence_duration}",
+            f"_phrase_time_limit:={args.phrase_time_limit}",
         ]
     )
 
