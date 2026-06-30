@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import os
-import sys
 import logging
 import numpy as np
 
-# Import crispasr from local copy if not installed globally
-try:
-    from crispasr import Session
-except ImportError:
-    local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../crispasr_src/python"))
-    if local_path not in sys.path:
-        sys.path.insert(0, local_path)
-    from crispasr import Session
+from crispasr_ros.runtime_paths import ensure_crispasr_runtime_paths
+
+ensure_crispasr_runtime_paths(__file__)
+
+from crispasr import Session
 
 logger = logging.getLogger("crispasr_ros.asr_engine")
 
@@ -74,5 +70,4 @@ class ASREngine:
         except Exception as e:
             logger.error(f"Error during load: {e}")
             raise
-
 

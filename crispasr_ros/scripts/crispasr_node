@@ -15,14 +15,11 @@ import numpy as np
 # Resolve local paths so we can import from src/ and crispasr_src/python/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
-# Fallback for importing crispasr._binding
-try:
-    from crispasr._binding import vad_slices
-except ImportError:
-    local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../crispasr_src/python"))
-    if local_path not in sys.path:
-        sys.path.insert(0, local_path)
-    from crispasr._binding import vad_slices
+from crispasr_ros.runtime_paths import ensure_crispasr_runtime_paths
+
+ensure_crispasr_runtime_paths(__file__)
+
+from crispasr._binding import vad_slices
 
 from crispasr_ros.compat import RosNode, find_workspace_root
 from crispasr_ros.asr_engine import ASREngine
