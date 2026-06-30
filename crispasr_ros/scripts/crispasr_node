@@ -176,7 +176,7 @@ class CrispASRNode:
         Args:
             msg: Custom message containing raw uint8 bytes representing 16-bit PCM.
         """
-        if self.is_sleeping:
+        if self.is_sleeping or not self._has_result_consumers():
             return
 
         if not msg.data:
@@ -200,6 +200,22 @@ class CrispASRNode:
         self.last_rx_time = time.time()
         self.audio_queue.put(float32_samples)
 
+    def _has_speech_result_subscribers(self) -> bool:
+        return self.pub.get_subscription_count() > 0
+
+    def _has_result_consumers(self) -> bool:
+        return (
+            self._has_speech_result_subscribers()
+            or self.confirmation_pub.get_subscription_count() > 0
+        )
+
+    def _drain_audio_queue(self) -> None:
+        while True:
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                return
+
     def _processing_loop(self) -> None:
         """Worker loop that handles VAD computation, timeouts, and ASR inference."""
         audio_buffer: List[float] = []
@@ -218,6 +234,16 @@ class CrispASRNode:
             if self.is_sleeping:
                 if audio_buffer:
                     audio_buffer = []
+                in_speech = False
+                phrase_start_sec = None
+                last_partial_text = ""
+                time.sleep(0.05)
+                continue
+
+            if not self._has_result_consumers():
+                if audio_buffer:
+                    audio_buffer = []
+                self._drain_audio_queue()
                 in_speech = False
                 phrase_start_sec = None
                 last_partial_text = ""
@@ -301,7 +327,11 @@ class CrispASRNode:
                         phrase_start_sec = None
                         
             # 3. Periodic partial transcription during active speech
-            if in_speech and len(audio_buffer) >= min_vad_samples:
+            if (
+                in_speech
+                and len(audio_buffer) >= min_vad_samples
+                and self._has_speech_result_subscribers()
+            ):
                 if now - last_inference_time > transcribe_interval:
                     pcm_array = np.array(audio_buffer, dtype=np.float32)
                     text = self.engine.transcribe(pcm_array, language=lang_code)
