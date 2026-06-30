@@ -12,6 +12,7 @@ if("$ENV{ROS_VERSION}" STREQUAL "1")
     scripts/crispasr_node
     scripts/audio_publisher_node
     scripts/microphone_node
+    scripts/confirmation_ros_demo
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   )
 
@@ -28,6 +29,7 @@ else()
     scripts/crispasr_node
     scripts/audio_publisher_node
     scripts/microphone_node
+    scripts/confirmation_ros_demo
     DESTINATION lib/${PROJECT_NAME}
   )
 
@@ -37,4 +39,3 @@ else()
 
   ament_package()
 endif()
-

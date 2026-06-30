@@ -3,6 +3,7 @@ project(crispasr_msgs)
 
 set(MSG_FILES
   AudioData.msg
+  ConfirmationResult.msg
   SpeechResult.msg
 )
 

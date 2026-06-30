@@ -15,6 +15,14 @@ vad_model_path: "models/ggml-silero-v6.2.0.bin"
 vad_threshold: 0.5         # Silero VAD threshold (0.0 - 1.0)
 silence_duration: 0.8      # Silence timeout to confirm final result (seconds)
 
+# Wake-gated confirmation parameters
+confirmation_result_topic: "/confirmation_result"
+confirmation_wake_words: ["eraser", "hey eraser", "イレーサー"]
+confirmation_positive_words: ["yes", "yeah", "yep", "ok", "okay", "ready", "done", "release", "はい", "うん", "レディ", "リリース"]
+confirmation_negative_words: ["no", "nope", "wrong", "incorrect", "not yet", "いいえ", "違う", "まだ"]
+confirmation_wake_window_sec: 3.0
+confirmation_require_wake_word: true
+
 wav_path: "test_audio/sample.wav"
 loop: true
 chunk_duration: 0.1

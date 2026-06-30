@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Demo the real CrispASR ROS confirmation pipeline.
+
+Run this after starting crispasr_node and an audio source, for example:
+
+  roslaunch crispasr_ros crispasr.launch
+  roslaunch crispasr_ros audio_source.launch use_microphone:=true
+  rosrun crispasr_ros confirmation_ros_demo
+
+The demo subscribes to /speech_result and /confirmation_result. It does not
+open a microphone or run ASR by itself, so it exercises the actual ROS path.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+from typing import Any
+
+
+def speech_result_to_dict(msg: Any) -> dict:
+    return {
+        "topic": "speech_result",
+        "text": msg.text,
+        "start": msg.start,
+        "end": msg.end,
+        "is_final": msg.is_final,
+    }
+
+
+def confirmation_result_to_dict(msg: Any) -> dict:
+    return {
+        "topic": "confirmation_result",
+        "text": msg.text,
+        "intent": msg.intent,
+        "command": msg.command,
+        "has_wake_word": msg.has_wake_word,
+        "is_within_wake_window": msg.is_within_wake_window,
+    }
+
+
+def print_json(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def run_ros1(args: argparse.Namespace) -> None:
+    import rospy
+    from crispasr_msgs.msg import ConfirmationResult, SpeechResult
+
+    rospy.init_node("confirmation_ros_demo")
+
+    if args.prompt:
+        rospy.loginfo(args.prompt)
+
+    def speech_cb(msg: SpeechResult) -> None:
+        if args.show_partial or msg.is_final:
+            print_json(speech_result_to_dict(msg))
+
+    def confirmation_cb(msg: ConfirmationResult) -> None:
+        print_json(confirmation_result_to_dict(msg))
+        if args.once:
+            rospy.signal_shutdown("confirmation received")
+
+    rospy.Subscriber(args.speech_topic, SpeechResult, speech_cb)
+    rospy.Subscriber(args.confirmation_topic, ConfirmationResult, confirmation_cb)
+
+    if args.timeout <= 0:
+        rospy.spin()
+        return
+
+    deadline = time.time() + args.timeout
+    rate = rospy.Rate(20)
+    while not rospy.is_shutdown() and time.time() < deadline:
+        rate.sleep()
+
+
+def run_ros2(args: argparse.Namespace) -> None:
+    import rclpy
+    from crispasr_msgs.msg import ConfirmationResult, SpeechResult
+    from rclpy.node import Node
+
+    rclpy.init()
+
+    class ConfirmationRosDemo(Node):
+        def __init__(self) -> None:
+            super().__init__("confirmation_ros_demo")
+            self.received_confirmation = False
+            self.create_subscription(
+                SpeechResult, args.speech_topic, self.speech_cb, 10
+            )
+            self.create_subscription(
+                ConfirmationResult, args.confirmation_topic, self.confirmation_cb, 10
+            )
+            if args.prompt:
+                self.get_logger().info(args.prompt)
+
+        def speech_cb(self, msg: SpeechResult) -> None:
+            if args.show_partial or msg.is_final:
+                print_json(speech_result_to_dict(msg))
+
+        def confirmation_cb(self, msg: ConfirmationResult) -> None:
+            self.received_confirmation = True
+            print_json(confirmation_result_to_dict(msg))
+
+    node = ConfirmationRosDemo()
+    start_time = time.time()
+
+    try:
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if args.once and node.received_confirmation:
+                break
+            if args.timeout > 0 and time.time() - start_time >= args.timeout:
+                break
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Subscribe to the real CrispASR ROS outputs and print speech and "
+            "wake-gated confirmation results as JSON."
+        )
+    )
+    parser.add_argument(
+        "--speech-topic",
+        default="/speech_result",
+        help="SpeechResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--confirmation-topic",
+        default="/confirmation_result",
+        help="ConfirmationResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=0.0,
+        help="Seconds to run. 0 means run until shutdown.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Exit after the first confirmation result.",
+    )
+    parser.add_argument(
+        "--show-partial",
+        action="store_true",
+        help="Print partial SpeechResult messages as well as final messages.",
+    )
+    parser.add_argument(
+        "--prompt",
+        default="Say 'Eraser ready' or 'Eraser release' into the configured audio source.",
+        help="Instruction logged when the demo starts.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    ros_version = int(os.environ.get("ROS_VERSION", "0"))
+
+    if ros_version == 1:
+        run_ros1(args)
+    elif ros_version == 2:
+        run_ros2(args)
+    else:
+        raise RuntimeError(
+            "ROS_VERSION must be 1 or 2. Source a ROS environment before running this demo."
+        )
+
+
+if __name__ == "__main__":
+    main()

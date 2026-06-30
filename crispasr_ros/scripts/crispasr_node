@@ -26,7 +26,8 @@ except ImportError:
 
 from crispasr_ros.compat import RosNode, find_workspace_root
 from crispasr_ros.asr_engine import ASREngine
-from crispasr_msgs.msg import AudioData, SpeechResult
+from crispasr_ros.confirmation import ConfirmationGate
+from crispasr_msgs.msg import AudioData, ConfirmationResult, SpeechResult
 
 class CrispASRNode:
     """ROS ASR Node combining Silero VAD and Whisper-based GGML transcription."""
@@ -43,6 +44,34 @@ class CrispASRNode:
         self.silence_duration = self.node.get_param("silence_duration", 0.8)
         self.language = self.node.get_param("language", "") # empty string means auto-detect
         audio_topic = self.node.get_param("audio_topic", "/audio")
+        confirmation_result_topic = self.node.get_param("confirmation_result_topic", "/confirmation_result")
+        confirmation_wake_words = self.node.get_param(
+            "confirmation_wake_words",
+            ["eraser", "hey eraser", "イレーサー"],
+        )
+        confirmation_positive_words = self.node.get_param(
+            "confirmation_positive_words",
+            [
+                "yes",
+                "yeah",
+                "yep",
+                "ok",
+                "okay",
+                "ready",
+                "done",
+                "release",
+                "はい",
+                "うん",
+                "レディ",
+                "リリース",
+            ],
+        )
+        confirmation_negative_words = self.node.get_param(
+            "confirmation_negative_words",
+            ["no", "nope", "wrong", "incorrect", "not yet", "いいえ", "違う", "まだ"],
+        )
+        confirmation_wake_window_sec = self.node.get_param("confirmation_wake_window_sec", 3.0)
+        confirmation_require_wake_word = self.node.get_param("confirmation_require_wake_word", True)
 
         
         ws_root = find_workspace_root(os.path.dirname(__file__))
@@ -80,7 +109,17 @@ class CrispASRNode:
         
         # Create Publisher and Subscriber using global topic names by default
         self.pub = self.node.create_publisher(SpeechResult, "/speech_result")
+        self.confirmation_pub = self.node.create_publisher(
+            ConfirmationResult, confirmation_result_topic
+        )
         self.node.create_subscriber(AudioData, audio_topic, self.audio_callback)
+        self.confirmation_gate = ConfirmationGate(
+            wake_words=confirmation_wake_words,
+            positive_words=confirmation_positive_words,
+            negative_words=confirmation_negative_words,
+            wake_window_sec=confirmation_wake_window_sec,
+            require_wake_word=confirmation_require_wake_word,
+        )
 
         # Create Services for sleep/wake_up
         self.node.create_trigger_service("sleep", self.sleep_callback)
@@ -289,6 +328,25 @@ class CrispASRNode:
         status = "FINAL" if is_final else "PARTIAL"
         self.node.log_info(f"[{status}] {text}")
 
+        if is_final:
+            self._publish_confirmation_result(text)
+
+    def _publish_confirmation_result(self, text: str) -> None:
+        decision = self.confirmation_gate.consume(text)
+        if decision is None:
+            return
+
+        msg = ConfirmationResult()
+        msg.text = decision.text
+        msg.intent = decision.intent
+        msg.command = decision.command
+        msg.has_wake_word = decision.has_wake_word
+        msg.is_within_wake_window = decision.is_within_wake_window
+        self.confirmation_pub.publish(msg)
+        self.node.log_info(
+            f"[CONFIRMATION] intent={msg.intent} command={msg.command} text={msg.text}"
+        )
+
     def run(self) -> None:
         """Start spinning the node execution."""
         self.node.spin()
@@ -304,5 +362,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
