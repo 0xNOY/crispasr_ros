@@ -1,25 +1,41 @@
 # ROS1 configuration parameters
 model_path: "models/cohere-transcribe-q4_k.gguf"
 n_threads: 4
-language: ""                 # ISO 639-1 language code (e.g. "ja", "en", or "" for auto)
-audio_topic: "/audio"        # topic name for audio data
-device_index: -1             # local microphone device index; -1 means default
-ssh_host: ""                 # remote audio input host, e.g. hsr-user@192.168.0.1
-ssh_compression: true        # pass -C to ssh
+language: "" # ISO 639-1 language code (e.g. "ja", "en", or "" for auto)
+audio_topic: "/audio" # topic name for audio data
+sample_rate: 16000 # published audio sample rate expected by ASR
+capture_sample_rate: 0 # microphone hardware rate; 0 tries 16k, then device/default rates
+device_index: -1 # local microphone device index; -1 means default
+ssh_host: "" # remote audio input host, e.g. hsr-user@192.168.0.1
+ssh_compression: true # pass -C to ssh
 ssh_arecord_command: "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
-
-
 
 # Silero VAD parameters
 vad_model_path: "models/ggml-silero-v6.2.0.bin"
-vad_threshold: 0.5         # Silero VAD threshold (0.0 - 1.0)
-silence_duration: 0.8      # Silence timeout to confirm final result (seconds)
+vad_threshold: 0.7 # Silero VAD threshold (0.0 - 1.0)
+silence_duration: 0.8 # Silence timeout to confirm final result (seconds)
+phrase_time_limit: 10.0 # Maximum phrase duration after speech starts; <=0 disables it
 
 # Wake-gated confirmation parameters
 confirmation_result_topic: "/confirmation_result"
 confirmation_wake_words: ["eraser", "hey eraser", "イレーサー"]
-confirmation_positive_words: ["yes", "yeah", "yep", "ok", "okay", "ready", "done", "release", "はい", "うん", "レディ", "リリース"]
-confirmation_negative_words: ["no", "nope", "wrong", "incorrect", "not yet", "いいえ", "違う", "まだ"]
+confirmation_positive_words:
+  [
+    "yes",
+    "yeah",
+    "yep",
+    "ok",
+    "okay",
+    "ready",
+    "done",
+    "release",
+    "はい",
+    "うん",
+    "レディ",
+    "リリース",
+  ]
+confirmation_negative_words:
+  ["no", "nope", "wrong", "incorrect", "not yet", "いいえ", "違う", "まだ"]
 confirmation_wake_window_sec: 3.0
 confirmation_require_wake_word: true
 

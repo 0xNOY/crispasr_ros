@@ -60,6 +60,7 @@ clean = "rm -rf build/ros1 install/ros1 log"
 launch-server = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros crispasr.launch'", depends-on = ["build"] }
 launch-audio = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch'", depends-on = ["build"] }
 launch-audio-mic = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch use_microphone:=true'", depends-on = ["build"] }
+demo-hsr-ssh-asr = { cmd = "bash -c '. install/ros1/setup.bash && rosrun crispasr_ros hsr_ssh_asr_demo \"$@\"' --", depends-on = ["build"] }
 
 
 [feature.ros2]

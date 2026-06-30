@@ -37,8 +37,14 @@ class CrispASRNode:
         model_path = self.node.get_param("model_path", "models/cohere-transcribe-q4_k.gguf")
         self.vad_model_path = self.node.get_param("vad_model_path", "models/ggml-silero-v6.2.0.bin")
         n_threads = self.node.get_param("n_threads", 4)
+        self.sample_rate = int(self.node.get_param("sample_rate", 16000))
+        if self.sample_rate <= 0:
+            self.node.log_error(f"sample_rate must be positive, got {self.sample_rate}")
+            sys.exit(1)
         self.vad_threshold = self.node.get_param("vad_threshold", 0.5)
         self.silence_duration = self.node.get_param("silence_duration", 0.8)
+        phrase_time_limit = float(self.node.get_param("phrase_time_limit", 0.0))
+        self.phrase_time_limit = phrase_time_limit if phrase_time_limit > 0.0 else None
         self.language = self.node.get_param("language", "") # empty string means auto-detect
         audio_topic = self.node.get_param("audio_topic", "/audio")
         confirmation_result_topic = self.node.get_param("confirmation_result_topic", "/confirmation_result")
@@ -200,9 +206,11 @@ class CrispASRNode:
         last_partial_text = ""
         last_inference_time = time.time()
         in_speech = False
+        phrase_start_sec: Optional[float] = None
         
         transcribe_interval = 0.6  # Partial transcription interval (seconds)
         silence_timeout = 1.5     # Watchdog timeout (seconds)
+        min_vad_samples = int(0.5 * self.sample_rate)
         
         lang_code = self.language.strip() if self.language.strip() else None
         
@@ -210,6 +218,9 @@ class CrispASRNode:
             if self.is_sleeping:
                 if audio_buffer:
                     audio_buffer = []
+                in_speech = False
+                phrase_start_sec = None
+                last_partial_text = ""
                 time.sleep(0.05)
                 continue
 
@@ -221,7 +232,7 @@ class CrispASRNode:
                 pass
                 
             now = time.time()
-            total_duration = len(audio_buffer) / 16000.0
+            total_duration = len(audio_buffer) / float(self.sample_rate)
             
             # 1. Silence watchdog timeout check
             if now - self.last_rx_time > silence_timeout and len(audio_buffer) > 0:
@@ -229,18 +240,19 @@ class CrispASRNode:
                 audio_buffer, in_speech, last_partial_text = self._flush_buffer(
                     audio_buffer, lang_code, cut_time_sec=None
                 )
+                phrase_start_sec = None
                 self.last_rx_time = now
                 continue
                 
             # 2. VAD processing if buffer has enough samples (>= 0.5s)
-            if len(audio_buffer) >= 8000:
+            if len(audio_buffer) >= min_vad_samples:
                 pcm_array = np.array(audio_buffer, dtype=np.float32)
                 spans = []
                 try:
                     spans = vad_slices(
                         pcm_array,
                         self.vad_model_path,
-                        sample_rate=16000,
+                        sample_rate=self.sample_rate,
                         threshold=self.vad_threshold,
                         n_threads=1
                     )
@@ -253,8 +265,25 @@ class CrispASRNode:
                     
                 if len(spans) > 0:
                     in_speech = True
+                    if phrase_start_sec is None:
+                        phrase_start_sec = spans[0].start
                     last_span = spans[-1]
                     last_end = last_span.end
+
+                    if (
+                        self.phrase_time_limit is not None
+                        and total_duration - phrase_start_sec >= self.phrase_time_limit
+                    ):
+                        cut_time_sec = phrase_start_sec + self.phrase_time_limit
+                        self.node.log_info(
+                            f"Phrase time limit reached ({self.phrase_time_limit:.2f}s). Flushing buffer."
+                        )
+                        audio_buffer, in_speech, last_partial_text = self._flush_buffer(
+                            audio_buffer, lang_code, cut_time_sec=cut_time_sec
+                        )
+                        phrase_start_sec = None
+                        self.last_rx_time = now
+                        continue
                     
                     # If silence duration after the last detected speech span exceeds threshold, flush
                     if total_duration - last_end >= self.silence_duration:
@@ -262,15 +291,17 @@ class CrispASRNode:
                         audio_buffer, in_speech, last_partial_text = self._flush_buffer(
                             audio_buffer, lang_code, cut_time_sec=last_end
                         )
+                        phrase_start_sec = None
                         self.last_rx_time = now
                 else:
                     # No speech segments detected.
                     # Clear accumulated silence if it exceeds 2.0s to avoid memory inflation.
                     if not in_speech and total_duration >= 2.0:
                         audio_buffer = []
+                        phrase_start_sec = None
                         
             # 3. Periodic partial transcription during active speech
-            if in_speech and len(audio_buffer) >= 8000:
+            if in_speech and len(audio_buffer) >= min_vad_samples:
                 if now - last_inference_time > transcribe_interval:
                     pcm_array = np.array(audio_buffer, dtype=np.float32)
                     text = self.engine.transcribe(pcm_array, language=lang_code)
@@ -295,7 +326,7 @@ class CrispASRNode:
         pcm_array = np.array(audio_buffer, dtype=np.float32)
         
         if cut_time_sec is not None:
-            cut_idx = int(cut_time_sec * 16000)
+            cut_idx = int(cut_time_sec * self.sample_rate)
             transcribe_pcm = pcm_array[:cut_idx]
             remaining_buffer = list(pcm_array[cut_idx:])
         else:

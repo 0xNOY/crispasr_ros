@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Run CrispASR from a robot microphone streamed over SSH.
+
+This demo starts the ASR node, starts microphone_node in SSH mode, and prints
+SpeechResult messages from the real ROS pipeline. The default target is the HSR
+robot at 192.168.11.80, where arecord is expected to be available.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+DEFAULT_AUDIO_TOPIC = "/audio"
+DEFAULT_SPEECH_TOPIC = "/speech_result"
+DEFAULT_ROBOT_HOST = "192.168.11.80"
+DEFAULT_ROBOT_USER = "hsr-user"
+DEFAULT_ARECORD_COMMAND = "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
+
+
+def speech_result_to_dict(msg: Any) -> dict[str, Any]:
+    return {
+        "topic": "speech_result",
+        "text": msg.text,
+        "start": msg.start,
+        "end": msg.end,
+        "is_final": msg.is_final,
+    }
+
+
+def print_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Stream microphone audio from a robot over SSH and run CrispASR "
+            "against the live ROS audio topic."
+        )
+    )
+    parser.add_argument(
+        "--robot-host",
+        default=DEFAULT_ROBOT_HOST,
+        help="Robot IP address or hostname used for SSH.",
+    )
+    parser.add_argument(
+        "--robot-user",
+        default=DEFAULT_ROBOT_USER,
+        help="SSH user for the robot.",
+    )
+    parser.add_argument(
+        "--ssh-host",
+        default="",
+        help="Full SSH target. Overrides --robot-user and --robot-host.",
+    )
+    parser.add_argument(
+        "--arecord-command",
+        default=DEFAULT_ARECORD_COMMAND,
+        help="Remote command that writes 16 kHz mono S16_LE raw PCM to stdout.",
+    )
+    parser.add_argument(
+        "--language",
+        default="en",
+        help="ASR language code passed to crispasr_node. Use '' for auto-detect.",
+    )
+    parser.add_argument(
+        "--audio-topic",
+        default=DEFAULT_AUDIO_TOPIC,
+        help="AudioData topic between microphone_node and crispasr_node.",
+    )
+    parser.add_argument(
+        "--speech-topic",
+        default=DEFAULT_SPEECH_TOPIC,
+        help="SpeechResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=0.0,
+        help="Seconds to run. 0 means run until interrupted.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Exit after the first final non-empty ASR result.",
+    )
+    parser.add_argument(
+        "--show-partial",
+        action="store_true",
+        help="Print partial SpeechResult messages as well as final messages.",
+    )
+    parser.add_argument(
+        "--no-roscore",
+        action="store_true",
+        help="Do not start roscore automatically when no ROS master is reachable.",
+    )
+    return parser.parse_args()
+
+
+def require_ros1() -> None:
+    if os.environ.get("ROS_VERSION") != "1":
+        raise RuntimeError(
+            "This demo is for ROS1. Run it from the Pixi ros1 environment, "
+            "for example: pixi run -e ros1 demo-hsr-ssh-asr"
+        )
+
+
+def ros_master_available() -> bool:
+    try:
+        import rosgraph
+
+        rosgraph.Master("/hsr_ssh_asr_demo_check").getPid()
+        return True
+    except Exception:
+        return False
+
+
+def start_process(cmd: list[str]) -> subprocess.Popen:
+    print("+ " + " ".join(cmd), flush=True)
+    return subprocess.Popen(cmd, preexec_fn=os.setsid)
+
+
+def stop_process(process: subprocess.Popen | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except Exception:
+            pass
+
+
+def maybe_start_roscore(args: argparse.Namespace) -> subprocess.Popen | None:
+    if ros_master_available():
+        return None
+    if args.no_roscore:
+        raise RuntimeError(
+            "No ROS master is reachable. Start roscore or omit --no-roscore."
+        )
+
+    roscore = start_process(["roscore"])
+    try:
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if ros_master_available():
+                return roscore
+            if roscore.poll() is not None:
+                raise RuntimeError("roscore exited before becoming available.")
+            time.sleep(0.2)
+        raise RuntimeError("Timed out waiting for roscore to become available.")
+    except Exception:
+        stop_process(roscore)
+        raise
+
+
+def build_ssh_host(args: argparse.Namespace) -> str:
+    if args.ssh_host:
+        return args.ssh_host
+    return f"{args.robot_user}@{args.robot_host}"
+
+
+def start_crispasr_node(args: argparse.Namespace) -> subprocess.Popen:
+    return start_process(
+        [
+            "rosrun",
+            "crispasr_ros",
+            "crispasr_node",
+            f"_language:={args.language}",
+            f"_audio_topic:={args.audio_topic}",
+        ]
+    )
+
+
+def start_ssh_microphone(args: argparse.Namespace) -> subprocess.Popen:
+    return start_process(
+        [
+            "rosrun",
+            "crispasr_ros",
+            "microphone_node",
+            f"_audio_topic:={args.audio_topic}",
+            f"_ssh_host:={build_ssh_host(args)}",
+            f"_ssh_arecord_command:={args.arecord_command}",
+        ]
+    )
+
+
+def run_demo(args: argparse.Namespace) -> None:
+    import rospy
+    from crispasr_msgs.msg import SpeechResult
+
+    received_final = False
+
+    rospy.init_node("hsr_ssh_asr_demo")
+    rospy.loginfo(
+        "Streaming robot microphone over SSH. Speak into the robot microphone."
+    )
+
+    def speech_cb(msg: SpeechResult) -> None:
+        nonlocal received_final
+        if args.show_partial or msg.is_final:
+            print_json(speech_result_to_dict(msg))
+        if args.once and msg.is_final and msg.text.strip():
+            received_final = True
+            rospy.signal_shutdown("received final ASR result")
+
+    rospy.Subscriber(args.speech_topic, SpeechResult, speech_cb)
+
+    start_time = time.time()
+    rate = rospy.Rate(20)
+    while not rospy.is_shutdown():
+        if args.once and received_final:
+            break
+        if args.timeout > 0 and time.time() - start_time >= args.timeout:
+            break
+        rate.sleep()
+
+
+def main() -> None:
+    args = parse_args()
+    require_ros1()
+
+    roscore: subprocess.Popen | None = None
+    asr_node: subprocess.Popen | None = None
+    mic_node: subprocess.Popen | None = None
+
+    try:
+        roscore = maybe_start_roscore(args)
+        asr_node = start_crispasr_node(args)
+        mic_node = start_ssh_microphone(args)
+        run_demo(args)
+    finally:
+        stop_process(mic_node)
+        stop_process(asr_node)
+        stop_process(roscore)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        print(f"hsr_ssh_asr_demo: {exc}", file=sys.stderr)
+        sys.exit(1)

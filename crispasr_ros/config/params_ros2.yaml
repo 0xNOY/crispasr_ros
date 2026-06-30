@@ -5,6 +5,8 @@
     n_threads: 4
     language: ""
     audio_topic: "/audio"
+    sample_rate: 16000
+    capture_sample_rate: 0
     device_index: -1
     ssh_host: ""
     ssh_compression: true
@@ -14,6 +16,7 @@
     vad_model_path: "models/ggml-silero-v6.2.0.bin"
     vad_threshold: 0.5
     silence_duration: 0.8
+    phrase_time_limit: 0.0
 
     # Wake-gated confirmation parameters
     confirmation_result_topic: "/confirmation_result"

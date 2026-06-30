@@ -12,12 +12,24 @@ def generate_launch_description():
     config_file = os.path.join(pkg_dir, 'config', 'params_ros2.yaml')
 
     use_microphone = LaunchConfiguration('use_microphone')
+    device_index = LaunchConfiguration('device_index')
+    capture_sample_rate = LaunchConfiguration('capture_sample_rate')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_microphone',
             default_value='false',
             description='Whether to capture audio from live microphone instead of WAV publisher'
+        ),
+        DeclareLaunchArgument(
+            'device_index',
+            default_value='-1',
+            description='Microphone input device index; -1 uses the system default'
+        ),
+        DeclareLaunchArgument(
+            'capture_sample_rate',
+            default_value='0',
+            description='Microphone hardware sample rate; 0 auto-detects a usable rate'
         ),
         # Launch Test Audio Publisher node (WAV playback)
         Node(
@@ -34,7 +46,13 @@ def generate_launch_description():
             executable='microphone_node',
             name='microphone_node',
             output='screen',
-            parameters=[config_file],
+            parameters=[
+                config_file,
+                {
+                    'device_index': device_index,
+                    'capture_sample_rate': capture_sample_rate,
+                },
+            ],
             condition=IfCondition(use_microphone)
         )
     ])

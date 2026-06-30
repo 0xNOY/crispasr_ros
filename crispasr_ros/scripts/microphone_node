@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
 
 from crispasr_ros.compat import RosNode
+from crispasr_ros.audio_resample import candidate_capture_rates, resample_int16_mono
 from crispasr_msgs.msg import AudioData
 
 class MicrophoneNode:
@@ -25,9 +26,10 @@ class MicrophoneNode:
         """Initialize the ROS node, query devices, and prepare the audio stream."""
         self.node = RosNode("microphone_node")
         
-        self.device_index = self.node.get_param("device_index", -1)
+        self.device_index = int(self.node.get_param("device_index", -1))
         self.chunk_duration = self.node.get_param("chunk_duration", 0.1) # 100ms chunks
-        self.sample_rate = 16000
+        self.sample_rate = int(self.node.get_param("sample_rate", 16000))
+        self.capture_sample_rate = int(self.node.get_param("capture_sample_rate", 0))
         self.ssh_host = self.node.get_param("ssh_host", "")
         self.ssh_compression = self.node.get_param("ssh_compression", True)
         self.ssh_arecord_command = self.node.get_param(
@@ -37,8 +39,10 @@ class MicrophoneNode:
         
         self.audio_topic = self.node.get_param("audio_topic", "/audio")
         self.pub = self.node.create_publisher(AudioData, self.audio_topic)
-        self.blocksize = int(self.sample_rate * self.chunk_duration)
-        self.chunk_bytes = self.blocksize * 2
+        self.output_blocksize = int(self.sample_rate * self.chunk_duration)
+        self.capture_rate = self.sample_rate
+        self.blocksize = self.output_blocksize
+        self.chunk_bytes = self.output_blocksize * 2
         self.subscriber_poll_interval = 0.1
         self.stream = None
 
@@ -76,20 +80,12 @@ class MicrophoneNode:
 
         self.node.log_info(f"Using input device: {device_info['name']} (index: {device})")
 
-        try:
-            self.stream = self.sd.InputStream(
-                device=device,
-                channels=1,
-                samplerate=self.sample_rate,
-                dtype='int16',
-                blocksize=self.blocksize,
-                callback=self.audio_callback
-            )
-        except Exception as e:
-            self.node.log_error(f"Failed to open audio input stream: {e}")
-            sys.exit(1)
+        self.stream = self._open_input_stream(device, device_info)
             
-        self.node.log_info(f"Microphone stream opened. Publishing to /audio at {self.sample_rate}Hz mono 16-bit PCM.")
+        self.node.log_info(
+            f"Microphone stream opened at {self.capture_rate}Hz. "
+            f"Publishing to {self.audio_topic} at {self.sample_rate}Hz mono 16-bit PCM."
+        )
 
     def _log_available_devices(self) -> None:
         """Query and log all available input audio devices on the host."""
@@ -105,6 +101,46 @@ class MicrophoneNode:
         except Exception as e:
             self.node.log_warn(f"Could not query audio devices: {e}")
 
+    def _open_input_stream(self, device: int, device_info: Any) -> Any:
+        last_error = None
+        for rate in candidate_capture_rates(
+            self.sample_rate,
+            self.capture_sample_rate,
+            device_info.get("default_samplerate", 0),
+        ):
+            blocksize = max(1, int(rate * self.chunk_duration))
+            try:
+                self.sd.check_input_settings(
+                    device=device,
+                    channels=1,
+                    samplerate=rate,
+                    dtype='int16',
+                )
+                stream = self.sd.InputStream(
+                    device=device,
+                    channels=1,
+                    samplerate=rate,
+                    dtype='int16',
+                    blocksize=blocksize,
+                    callback=self.audio_callback
+                )
+            except Exception as e:
+                last_error = e
+                self.node.log_warn(f"Audio input does not accept {rate}Hz: {e}")
+                continue
+
+            self.capture_rate = rate
+            self.blocksize = blocksize
+            if self.capture_rate != self.sample_rate:
+                self.node.log_warn(
+                    f"Capture device opened at {self.capture_rate}Hz; "
+                    f"audio will be resampled to {self.sample_rate}Hz for ASR."
+                )
+            return stream
+
+        self.node.log_error(f"Failed to open audio input stream: {last_error}")
+        sys.exit(1)
+
     def audio_callback(self, indata: Any, frames: int, time_info: Any, status: Any) -> None:
         """Callback function called by sounddevice for each new block of audio.
 
@@ -117,9 +153,10 @@ class MicrophoneNode:
         if status:
             self.node.log_warn(f"Audio stream status: {status}")
             
-        # Convert int16 samples to raw bytes and publish
+        # Convert int16 samples to target-rate raw bytes and publish.
         try:
-            self._publish_audio(indata.tobytes())
+            pcm = resample_int16_mono(indata, self.capture_rate, self.sample_rate)
+            self._publish_audio(pcm.tobytes())
         except Exception as e:
             self.node.log_error(f"Failed to publish audio callback data: {e}")
 
