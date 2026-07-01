@@ -18,12 +18,18 @@ logger = logging.getLogger("crispasr_ros.asr_engine")
 class ASREngine:
     """ASR Engine that wraps the CrispASR Session class for transcription."""
 
-    def __init__(self, model_path: str, n_threads: int = 4) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        n_threads: int = 4,
+        frequency_penalty: float = 0.0,
+    ) -> None:
         """Initialize the ASREngine.
 
         Args:
             model_path: Path to the GGUF model file.
             n_threads: Number of threads to run inference on.
+            frequency_penalty: Repeated-token frequency penalty. 0 disables it.
 
         Raises:
             FileNotFoundError: If the model file does not exist.
@@ -33,6 +39,12 @@ class ASREngine:
             
         logger.info(f"Loading ASR model: {model_path}")
         self.session = Session(model_path, n_threads=n_threads)
+        if frequency_penalty > 0.0:
+            try:
+                self.session.set_frequency_penalty(frequency_penalty)
+                logger.info(f"Applied frequency penalty: {frequency_penalty}")
+            except Exception as e:
+                logger.warning(f"Could not apply frequency penalty: {e}")
         logger.info(f"ASR Model loaded. Backend: {self.session.backend}")
 
     def transcribe(self, pcm_f32: np.ndarray, language: str | None = None) -> str:
@@ -70,4 +82,3 @@ class ASREngine:
         except Exception as e:
             logger.error(f"Error during load: {e}")
             raise
-

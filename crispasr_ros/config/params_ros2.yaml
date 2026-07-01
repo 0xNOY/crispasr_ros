@@ -4,6 +4,7 @@
     model_path: "models/cohere-transcribe-q4_k.gguf"
     n_threads: 4
     language: ""
+    frequency_penalty: 0.4
     audio_topic: "/audio"
     sample_rate: 16000
     audio_backend: "arecord"

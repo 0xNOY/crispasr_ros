@@ -27,6 +27,7 @@ DEFAULT_ARECORD_COMMAND = "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
 DEFAULT_VAD_THRESHOLD = 0.7
 DEFAULT_SILENCE_DURATION = 0.8
 DEFAULT_PHRASE_TIME_LIMIT = 10.0
+DEFAULT_FREQUENCY_PENALTY = 0.4
 
 
 def speech_result_to_dict(msg: Any) -> dict[str, Any]:
@@ -131,6 +132,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--frequency-penalty",
+        type=float,
+        default=DEFAULT_FREQUENCY_PENALTY,
+        help=(
+            "Repeated-token frequency penalty passed to crispasr_node. "
+            "Use 0.0 to disable."
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=0.0,
@@ -231,6 +241,7 @@ def start_crispasr_node(args: argparse.Namespace) -> subprocess.Popen:
             f"_vad_threshold:={args.vad_threshold}",
             f"_silence_duration:={args.silence_duration}",
             f"_phrase_time_limit:={args.phrase_time_limit}",
+            f"_frequency_penalty:={args.frequency_penalty}",
             f"_confirmation_result_topic:={args.confirmation_topic}",
             f"_confirmation_require_wake_word:={str(args.require_confirmation_wake_word).lower()}",
         ]

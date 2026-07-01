@@ -35,6 +35,7 @@ class HsrSshAsrDemoTest(unittest.TestCase):
         self.assertIn("--vad-threshold", proc.stdout)
         self.assertIn("--silence-duration", proc.stdout)
         self.assertIn("--phrase-time-limit", proc.stdout)
+        self.assertIn("--frequency-penalty", proc.stdout)
         self.assertIn("--confirmation-topic", proc.stdout)
         self.assertIn("--require-confirmation-wake-word", proc.stdout)
 
@@ -46,6 +47,7 @@ class HsrSshAsrDemoTest(unittest.TestCase):
             vad_threshold=demo.DEFAULT_VAD_THRESHOLD,
             silence_duration=demo.DEFAULT_SILENCE_DURATION,
             phrase_time_limit=demo.DEFAULT_PHRASE_TIME_LIMIT,
+            frequency_penalty=demo.DEFAULT_FREQUENCY_PENALTY,
             confirmation_topic=demo.DEFAULT_CONFIRMATION_TOPIC,
             require_confirmation_wake_word=False,
         )
@@ -58,6 +60,7 @@ class HsrSshAsrDemoTest(unittest.TestCase):
         self.assertIn("_vad_threshold:=0.7", cmd)
         self.assertIn("_silence_duration:=0.8", cmd)
         self.assertIn("_phrase_time_limit:=10.0", cmd)
+        self.assertIn("_frequency_penalty:=0.4", cmd)
         self.assertIn("_confirmation_result_topic:=/confirmation_result", cmd)
         self.assertIn("_confirmation_require_wake_word:=false", cmd)
 

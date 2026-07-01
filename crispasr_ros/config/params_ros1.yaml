@@ -2,6 +2,7 @@
 model_path: "models/cohere-transcribe-q4_k.gguf"
 n_threads: 4
 language: "" # ISO 639-1 language code (e.g. "ja", "en", or "" for auto)
+frequency_penalty: 0.4 # Repeated-token penalty for AR ASR backends; 0 disables it
 audio_topic: "/audio" # topic name for audio data
 sample_rate: 16000 # published audio sample rate expected by ASR
 audio_backend: "arecord" # local microphone backend: "arecord" or "sounddevice"
