@@ -20,7 +20,7 @@ phrase_time_limit: 10.0 # Maximum phrase duration after speech starts; <=0 disab
 
 # Wake-gated confirmation parameters
 confirmation_result_topic: "/confirmation_result"
-confirmation_wake_words: ["eraser", "hey eraser", "イレーサー"]
+confirmation_wake_words: []
 confirmation_positive_words:
   [
     "yes",
@@ -39,7 +39,7 @@ confirmation_positive_words:
 confirmation_negative_words:
   ["no", "nope", "wrong", "incorrect", "not yet", "いいえ", "違う", "まだ"]
 confirmation_wake_window_sec: 3.0
-confirmation_require_wake_word: true
+confirmation_require_wake_word: false
 
 wav_path: "test_audio/sample.wav"
 loop: true
