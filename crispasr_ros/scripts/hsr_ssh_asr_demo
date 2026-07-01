@@ -20,6 +20,7 @@ from typing import Any
 
 DEFAULT_AUDIO_TOPIC = "/audio"
 DEFAULT_SPEECH_TOPIC = "/speech_result"
+DEFAULT_CONFIRMATION_TOPIC = "/confirmation_result"
 DEFAULT_ROBOT_HOST = "192.168.11.80"
 DEFAULT_ROBOT_USER = "hsr-user"
 DEFAULT_ARECORD_COMMAND = "arecord -q -f S16_LE -r 16000 -c 1 -t raw -"
@@ -35,6 +36,17 @@ def speech_result_to_dict(msg: Any) -> dict[str, Any]:
         "start": msg.start,
         "end": msg.end,
         "is_final": msg.is_final,
+    }
+
+
+def confirmation_result_to_dict(msg: Any) -> dict[str, Any]:
+    return {
+        "topic": "confirmation_result",
+        "text": msg.text,
+        "intent": msg.intent,
+        "command": msg.command,
+        "has_wake_word": msg.has_wake_word,
+        "is_within_wake_window": msg.is_within_wake_window,
     }
 
 
@@ -83,6 +95,16 @@ def parse_args() -> argparse.Namespace:
         "--speech-topic",
         default=DEFAULT_SPEECH_TOPIC,
         help="SpeechResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--confirmation-topic",
+        default=DEFAULT_CONFIRMATION_TOPIC,
+        help="ConfirmationResult topic published by crispasr_node.",
+    )
+    parser.add_argument(
+        "--require-confirmation-wake-word",
+        action="store_true",
+        help="Require a wake word before yes/ready/release confirmations.",
     )
     parser.add_argument(
         "--vad-threshold",
@@ -209,6 +231,8 @@ def start_crispasr_node(args: argparse.Namespace) -> subprocess.Popen:
             f"_vad_threshold:={args.vad_threshold}",
             f"_silence_duration:={args.silence_duration}",
             f"_phrase_time_limit:={args.phrase_time_limit}",
+            f"_confirmation_result_topic:={args.confirmation_topic}",
+            f"_confirmation_require_wake_word:={str(args.require_confirmation_wake_word).lower()}",
         ]
     )
 
@@ -228,7 +252,7 @@ def start_ssh_microphone(args: argparse.Namespace) -> subprocess.Popen:
 
 def run_demo(args: argparse.Namespace) -> None:
     import rospy
-    from crispasr_msgs.msg import SpeechResult
+    from crispasr_msgs.msg import ConfirmationResult, SpeechResult
 
     received_final = False
 
@@ -245,7 +269,11 @@ def run_demo(args: argparse.Namespace) -> None:
             received_final = True
             rospy.signal_shutdown("received final ASR result")
 
+    def confirmation_cb(msg: ConfirmationResult) -> None:
+        print_json(confirmation_result_to_dict(msg))
+
     rospy.Subscriber(args.speech_topic, SpeechResult, speech_cb)
+    rospy.Subscriber(args.confirmation_topic, ConfirmationResult, confirmation_cb)
 
     start_time = time.time()
     rate = rospy.Rate(20)

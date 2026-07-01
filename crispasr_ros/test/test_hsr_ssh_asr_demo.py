@@ -35,6 +35,8 @@ class HsrSshAsrDemoTest(unittest.TestCase):
         self.assertIn("--vad-threshold", proc.stdout)
         self.assertIn("--silence-duration", proc.stdout)
         self.assertIn("--phrase-time-limit", proc.stdout)
+        self.assertIn("--confirmation-topic", proc.stdout)
+        self.assertIn("--require-confirmation-wake-word", proc.stdout)
 
     def test_crispasr_node_receives_noise_robust_vad_defaults(self):
         demo = load_demo_module()
@@ -44,6 +46,8 @@ class HsrSshAsrDemoTest(unittest.TestCase):
             vad_threshold=demo.DEFAULT_VAD_THRESHOLD,
             silence_duration=demo.DEFAULT_SILENCE_DURATION,
             phrase_time_limit=demo.DEFAULT_PHRASE_TIME_LIMIT,
+            confirmation_topic=demo.DEFAULT_CONFIRMATION_TOPIC,
+            require_confirmation_wake_word=False,
         )
 
         with mock.patch.object(demo, "start_process") as start_process:
@@ -54,6 +58,15 @@ class HsrSshAsrDemoTest(unittest.TestCase):
         self.assertIn("_vad_threshold:=0.7", cmd)
         self.assertIn("_silence_duration:=0.8", cmd)
         self.assertIn("_phrase_time_limit:=10.0", cmd)
+        self.assertIn("_confirmation_result_topic:=/confirmation_result", cmd)
+        self.assertIn("_confirmation_require_wake_word:=false", cmd)
+
+    def test_demo_subscribes_to_confirmation_result_topic(self):
+        source = SCRIPT_PATH.read_text()
+
+        self.assertIn("ConfirmationResult", source)
+        self.assertIn("confirmation_result_to_dict", source)
+        self.assertIn("rospy.Subscriber(args.confirmation_topic", source)
 
 
 if __name__ == "__main__":
