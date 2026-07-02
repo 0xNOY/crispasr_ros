@@ -1,0 +1,19 @@
+<launch>
+  <arg name="robot_host" default="192.168.11.80" />
+  <arg name="robot_user" default="hsr-user" />
+  <arg name="ssh_host" default="$(arg robot_user)@$(arg robot_host)" />
+  <arg name="audio_topic" default="/audio" />
+  <arg name="ssh_arecord_command" default="arecord -q -f S16_LE -r 16000 -c 1 -t raw -" />
+
+  <node name="crispasr_node" pkg="crispasr_ros" type="crispasr_node" output="screen">
+    <rosparam command="load" file="$(find crispasr_ros)/config/params_ros1.yaml" />
+    <param name="audio_topic" value="$(arg audio_topic)" />
+  </node>
+
+  <node name="microphone_node" pkg="crispasr_ros" type="microphone_node" output="screen">
+    <rosparam command="load" file="$(find crispasr_ros)/config/params_ros1.yaml" />
+    <param name="audio_topic" value="$(arg audio_topic)" />
+    <param name="ssh_host" value="$(arg ssh_host)" />
+    <param name="ssh_arecord_command" value="$(arg ssh_arecord_command)" />
+  </node>
+</launch>

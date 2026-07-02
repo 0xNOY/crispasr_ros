@@ -5,6 +5,8 @@
     n_threads: 4
     language: ""
     frequency_penalty: 0.4
+    enable_partial_results: false
+    max_audio_queue_chunks: 30
     audio_topic: "/audio"
     sample_rate: 16000
     audio_backend: "arecord"

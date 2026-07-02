@@ -53,6 +53,7 @@ ros-noetic-message-generation = "*"
 ros-noetic-message-runtime = "*"
 ros-noetic-std-msgs = "*"
 ros-noetic-sensor-msgs = "*"
+ros-noetic-std-srvs = "*"
 
 [feature.ros1.tasks]
 build = { cmd = "colcon build --base-paths crispasr_msgs crispasr_ros --build-base build/ros1 --install-base install/ros1 --merge-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython_EXECUTABLE=$CONDA_PREFIX/bin/python -DPython3_EXECUTABLE=$CONDA_PREFIX/bin/python", depends-on = ["build-native"] }
@@ -60,6 +61,7 @@ clean = "rm -rf build/ros1 install/ros1 log"
 launch-server = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros crispasr.launch'", depends-on = ["build"] }
 launch-audio = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch'", depends-on = ["build"] }
 launch-audio-mic = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros audio_source.launch use_microphone:=true'", depends-on = ["build"] }
+launch-hsr-ssh-asr = { cmd = "bash -c '. install/ros1/setup.bash && roslaunch crispasr_ros hsr_ssh_asr.launch'", depends-on = ["build"] }
 demo-hsr-ssh-asr = { cmd = "bash -c '. install/ros1/setup.bash && rosrun crispasr_ros hsr_ssh_asr_demo \"$@\"' --", depends-on = ["build"] }
 
 
@@ -73,6 +75,7 @@ ros-humble-rosidl-default-generators = "*"
 ros-humble-rosidl-default-runtime = "*"
 ros-humble-std-msgs = "*"
 ros-humble-sensor-msgs = "*"
+ros-humble-std-srvs = "*"
 ros-humble-ament-cmake = "*"
 
 [feature.ros2.tasks]

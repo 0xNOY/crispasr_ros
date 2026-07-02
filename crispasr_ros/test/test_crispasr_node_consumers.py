@@ -22,8 +22,19 @@ class CrispASRNodeConsumersTest(unittest.TestCase):
     def test_partial_transcription_requires_speech_result_subscriber(self):
         source = SCRIPT_PATH.read_text()
 
+        self.assertIn('self.node.get_param("enable_partial_results", False)', source)
+        self.assertIn("and self.enable_partial_results", source)
         self.assertIn("def _has_speech_result_subscribers(self)", source)
         self.assertIn("and self._has_speech_result_subscribers()", source)
+
+    def test_audio_queue_is_bounded_and_clearable(self):
+        source = SCRIPT_PATH.read_text()
+
+        self.assertIn('self.node.get_param("max_audio_queue_chunks", 30)', source)
+        self.assertIn("queue.Queue(", source)
+        self.assertIn("maxsize=max(1, max_audio_queue_chunks)", source)
+        self.assertIn('self.node.create_trigger_service("clear_buffer"', source)
+        self.assertIn("def clear_buffer_callback(self)", source)
 
     def test_asr_node_passes_frequency_penalty_to_engine(self):
         source = SCRIPT_PATH.read_text()
